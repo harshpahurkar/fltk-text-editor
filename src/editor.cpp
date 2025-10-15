@@ -5,6 +5,9 @@
 #include <FL/Fl_Menu_Bar.H>
 #include <FL/Fl_File_Chooser.H>
 #include <FL/fl_ask.H>
+#include <FL/Fl_Input.H>
+#include <FL/Fl_Button.H>
+#include <FL/Fl_Return_Button.H>
 
 #include <cstdio>
 #include <cstdlib>
@@ -29,7 +32,15 @@ public:
     EditorWindow(int w, int h, const char* t);
     ~EditorWindow() override = default;
 
+    Fl_Window* replace_dlg = nullptr;
+    Fl_Input* replace_find = nullptr;
+    Fl_Input* replace_with = nullptr;
+    Fl_Button* replace_all = nullptr;
+    Fl_Return_Button* replace_next = nullptr;
+    Fl_Button* replace_cancel = nullptr;
+
     Fl_Text_Editor* editor = nullptr;
+    char search[256] = "";
 };
 
 void set_title(EditorWindow* w) {
@@ -118,6 +129,13 @@ void open_cb(Fl_Widget*, void*) {
     if (path) load_file(path, -1);
 }
 
+void insert_cb(Fl_Widget*, void*) {
+    const char* path = fl_file_chooser("Insert File", "*", filename);
+    if (path && main_window) {
+        load_file(path, main_window->editor->insert_position());
+    }
+}
+
 void save_cb(Fl_Widget*, void*) {
     if (filename[0] == '\0') {
         const char* path = fl_file_chooser("Save File As", "*", filename);
@@ -137,6 +155,113 @@ void quit_cb(Fl_Widget*, void*) {
     std::exit(0);
 }
 
+void copy_cb(Fl_Widget*, void* v) {
+    if (main_window) Fl_Text_Editor::kf_copy(0, main_window->editor);
+}
+
+void cut_cb(Fl_Widget*, void* v) {
+    if (main_window) Fl_Text_Editor::kf_cut(0, main_window->editor);
+}
+
+void paste_cb(Fl_Widget*, void* v) {
+    if (main_window) Fl_Text_Editor::kf_paste(0, main_window->editor);
+}
+
+void delete_cb(Fl_Widget*, void*) {
+    textbuf->remove_selection();
+}
+
+void find_next(Fl_Widget*, void* v) {
+    auto* w = main_window;
+    if (!w) return;
+    if (w->search[0] == '\0') return;
+
+    int pos = w->editor->insert_position();
+    int found = textbuf->search_forward(pos, w->search, &pos);
+    if (found) {
+        textbuf->select(pos, pos + std::strlen(w->search));
+        w->editor->insert_position(pos + std::strlen(w->search));
+        w->editor->show_insert_position();
+    } else {
+        fl_alert("No more matches for '%s'", w->search);
+    }
+}
+
+void find_cb(Fl_Widget* w, void* v) {
+    auto* e = main_window;
+    if (!e) return;
+    const char* val = fl_input("Find:", e->search);
+    if (val) {
+        std::strncpy(e->search, val, sizeof(e->search) - 1);
+        e->search[sizeof(e->search) - 1] = '\0';
+        find_next(w, v);
+    }
+}
+
+void replace_cb(Fl_Widget*, void* v) {
+    auto* e = main_window;
+    if (!e) return;
+    e->replace_dlg->show();
+}
+
+void replace_next_cb(Fl_Widget*, void* v) {
+    auto* e = main_window;
+    if (!e) return;
+    const char* find = e->replace_find->value();
+    const char* repl = e->replace_with->value();
+
+    if (!find || find[0] == '\0') {
+        e->replace_dlg->show();
+        return;
+    }
+
+    int pos = e->editor->insert_position();
+    int found = textbuf->search_forward(pos, find, &pos);
+    if (found) {
+        textbuf->select(pos, pos + std::strlen(find));
+        textbuf->remove_selection();
+        textbuf->insert(pos, repl);
+        e->editor->insert_position(pos + std::strlen(repl));
+        e->editor->show_insert_position();
+    } else {
+        fl_alert("No match for '%s'", find);
+    }
+}
+
+void replace_all_cb(Fl_Widget*, void* v) {
+    auto* e = main_window;
+    if (!e) return;
+    const char* find = e->replace_find->value();
+    const char* repl = e->replace_with->value();
+
+    if (!find || find[0] == '\0') {
+        e->replace_dlg->show();
+        return;
+    }
+
+    int times = 0;
+    e->editor->insert_position(0);
+    for (;;) {
+        int pos = e->editor->insert_position();
+        int found = textbuf->search_forward(pos, find, &pos);
+        if (!found) break;
+        textbuf->select(pos, pos + std::strlen(find));
+        textbuf->remove_selection();
+        textbuf->insert(pos, repl);
+        e->editor->insert_position(pos + std::strlen(repl));
+        times++;
+    }
+
+    if (times > 0) fl_message("Replaced %d occurrence(s).", times);
+    else fl_alert("No match for '%s'", find);
+}
+
+void replace_cancel_cb(Fl_Widget*, void* v) {
+    auto* e = main_window;
+    if (!e) return;
+    e->replace_dlg->hide();
+}
+
 void about_cb(Fl_Widget*, void*) {
     fl_message("FLTK Text Editor\nHarsh Pahurkar");
 }
@@ -145,9 +270,23 @@ Fl_Menu_Item menu_items[] = {
     {"&File", 0, 0, 0, FL_SUBMENU},
         {"&New", FL_CTRL + 'n', (Fl_Callback*)new_cb},
         {"&Open...", FL_CTRL + 'o', (Fl_Callback*)open_cb},
+        {"&Insert...", FL_CTRL + 'i', (Fl_Callback*)insert_cb, 0, FL_MENU_DIVIDER},
         {"&Save", FL_CTRL + 's', (Fl_Callback*)save_cb},
         {"Save &As...", FL_CTRL + FL_SHIFT + 's', (Fl_Callback*)saveas_cb, 0, FL_MENU_DIVIDER},
         {"E&xit", FL_CTRL + 'q', (Fl_Callback*)quit_cb},
+        {0},
+    {"&Edit", 0, 0, 0, FL_SUBMENU},
+        {"Cu&t", FL_CTRL + 'x', (Fl_Callback*)cut_cb},
+        {"&Copy", FL_CTRL + 'c', (Fl_Callback*)copy_cb},
+        {"&Paste", FL_CTRL + 'v', (Fl_Callback*)paste_cb},
+        {"&Delete", 0, (Fl_Callback*)delete_cb},
+        {0},
+    {"&Search", 0, 0, 0, FL_SUBMENU},
+        {"&Find...", FL_CTRL + 'f', (Fl_Callback*)find_cb},
+        {"Find &Next", FL_CTRL + 'g', (Fl_Callback*)find_next},
+        {"&Replace...", FL_CTRL + 'r', (Fl_Callback*)replace_cb},
+        {"Replace &Next", FL_CTRL + 't', (Fl_Callback*)replace_next_cb},
+        {"Replace &All", FL_CTRL + 'a', (Fl_Callback*)replace_all_cb},
         {0},
     {"&About", 0, 0, 0, FL_SUBMENU},
         {"About This Editor", 0, (Fl_Callback*)about_cb},
@@ -164,6 +303,20 @@ EditorWindow::EditorWindow(int w, int h, const char* t) : Fl_Double_Window(w, h,
     editor = new Fl_Text_Editor(0, 28, w, h - 28);
     editor->buffer(textbuf);
     editor->textfont(FL_COURIER);
+
+    replace_dlg = new Fl_Window(320, 120, "Replace");
+    replace_find = new Fl_Input(80, 10, 220, 25, "Find:");
+    replace_with = new Fl_Input(80, 45, 220, 25, "Replace:");
+    replace_all = new Fl_Button(10, 80, 90, 25, "Replace All");
+    replace_next = new Fl_Return_Button(110, 80, 110, 25, "Replace Next");
+    replace_cancel = new Fl_Button(230, 80, 80, 25, "Cancel");
+
+    replace_all->callback(replace_all_cb, this);
+    replace_next->callback(replace_next_cb, this);
+    replace_cancel->callback(replace_cancel_cb, this);
+
+    replace_dlg->set_non_modal();
+    replace_dlg->end();
 
     end();
     resizable(editor);
