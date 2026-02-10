@@ -1,6 +1,6 @@
 # FLTK Text Editor
 
-A lightweight, cross-platform text editor built with **C++17** and **FLTK** — featuring file management, find & replace, clipboard operations, change tracking, and a live status bar.
+A lightweight, cross-platform text editor built with **C++17** and **FLTK** — featuring file management, find & replace, clipboard operations, change tracking, and a live status bar with real-time cursor position.
 
 ---
 
